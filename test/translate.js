@@ -1,224 +1,261 @@
-'use strict';
+import test from 'ava'
+import himalaya from '../lib'
+import translate from '../lib/translate'
+const {toHTML, toJade, toPug} = translate
 
-var _paul = require('paul');
+test('toHTML() should handle simple conversions', t => {
+  const str1 = '<h1>Text</h1>'
+  t.is(toHTML(himalaya.parse(str1)), str1)
 
-var _paul2 = _interopRequireDefault(_paul);
+  const str2 = 'Text'
+  t.is(toHTML(himalaya.parse(str2)), str2)
 
-var _compat = require('./compat');
+  const str3 = '<!--Comment-->'
+  t.is(toHTML(himalaya.parse(str3)), str3)
+})
 
-function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
+test('toHTML() should work for void elements', t => {
+  const meta = "<meta charset='utf8'>"
+  t.is(toHTML(himalaya.parse(meta)), meta)
 
-// c/p'd from ../index.js
-var voidTags = ['!doctype', 'area', 'base', 'br', 'col', 'command', 'embed', 'hr', 'img', 'input', 'keygen', 'link', 'meta', 'param', 'source', 'track', 'wbr'];
+  const link = "<link rel='stylesheet' href='file.css'>"
+  t.is(toHTML(himalaya.parse(link)), link)
+})
 
-function serializeAttr(attr, value, isXml) {
-  if (!isXml && attr === value) return attr;
-  var text = value.toString();
-  var quoteEscape = text.indexOf('\'') !== -1;
-  var quote = quoteEscape ? '"' : '\'';
-  return attr + '=' + quote + text + quote;
-}
+test('toHTML() should build the class attribute properly', t => {
+  const elem = "<div class='foo bar baz'></div>"
+  t.is(toHTML(himalaya.parse(elem)), elem)
+})
 
-// stolen from underscore.string
-function dasherize(str) {
-  return str.trim().replace(/([A-Z])/g, '-$1').replace(/[-_\s]+/g, '-').toLowerCase();
-}
+test('toHTML() should build data-* attributes properly', t => {
+  const elem = "<div data-one='5' data-two='five'></div>"
+  t.is(toHTML(himalaya.parse(elem)), elem)
+})
 
-function inlineStyle(style) {
-  return Object.keys(style).reduce(function (css, key) {
-    return css + '; ' + dasherize(key) + ': ' + style[key];
-  }, '').slice(2);
-}
+test('toHTML() should build the style attribute properly', t => {
+  const elem = "<div style='color: #fff; font-size: 12px'></div>"
+  t.is(toHTML(himalaya.parse(elem)), elem)
+})
 
-var htmlDefaults = {};
+test('toHTML() should do basic escaping if a value contains either single or double quotes', t => {
+  const html = '<div data-val="cake is \'good\'"></div>'
+  t.is(toHTML(himalaya.parse(html)), html)
+})
 
-function toHTML(tree) {
-  var options = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : htmlDefaults;
-  var doctype = options.doctype;
+test('toHTML() should handle receiving a single root node', t => {
+  const html = '<div><p>Words are words.</p></div>'
+  t.is(toHTML(himalaya.parse(html)[0]), html)
+})
 
-  var isXml = doctype === 'xml';
-  var html = _paul2.default.walk(tree, function (node, walk) {
+test('toHTML() should preserve whitespace', t => {
+  const html = [
+    '<html>    ',
+    '    <h1>    Document    </h1>',
+    '</html>   '
+  ].join('\n')
+  t.is(toHTML(himalaya.parse(html)), html)
+})
 
-    if(!node){
-      return;
-    }
-    var type = node.type,
-      tagName = node.tagName,
-      attributes = node.attributes,
-      content = node.content;
+test('toHTML() should close void tags when doctype is xml', t => {
+  const html = "<img src='bar.png'>"
+  const xml = "<img src='bar.png'></img>"
+  const jsonHTML = himalaya.parse(html)
+  const jsonXML = himalaya.parse(xml)
 
-    if (type.toLowerCase() === 'text'){
-      return content;
-    }
-    if (type === 'Comment') return '<!--' + content + '-->';
-    var tag = '<' + tagName;
-    for (var attr in attributes) {
-      var val = attributes[attr];
-      if (attr === 'dataset') {
-        for (var prop in val) {
-          var key = 'data-' + dasherize(prop);
-          tag += ' ' + serializeAttr(key, val[prop], isXml);
-        }
-        continue;
-      }
+  t.is(toHTML(jsonHTML), html)
+  t.is(toHTML(jsonHTML, {
+    doctype: 'xml'
+  }), xml)
 
-      if (attr === 'style') {
-        tag += ' ' + serializeAttr(attr, inlineStyle(val));
-        continue;
-      }
+  t.is(toHTML(jsonXML), html)
+  t.is(toHTML(jsonXML, {
+    doctype: 'xml'
+  }), xml)
+})
 
-      if (attr === 'className') {
-        tag += ' ' + serializeAttr('class', val.join(' '));
-        continue;
-      }
+test('toHTML() should write out boolean attributes when doctype is xml', t => {
+  const html = "<script src='bar.js' async></script>"
+  const xml = "<script src='bar.js' async='async'></script>"
+  const jsonHTML = himalaya.parse(html)
+  const jsonXML = himalaya.parse(xml)
 
-      tag += ' ' + serializeAttr(dasherize(attr), val, isXml);
-    }
+  t.is(toHTML(jsonHTML), html)
+  t.is(toHTML(jsonHTML, {
+    doctype: 'xml'
+  }), xml)
 
-    tag += '>';
-    var autoClose = !isXml && (0, _compat.arrayIncludes)(voidTags, tagName.toLowerCase());
-    if (autoClose) return tag;
+  t.is(toHTML(jsonXML), html)
+  t.is(toHTML(jsonXML, {
+    doctype: 'xml'
+  }), xml)
+})
 
-    var innerds = walk(node.children || []).join('');
-    return tag + innerds + ('</' + tagName + '>');
-  });
-  if (html.join) return html.join('');
-  return html;
-}
+test('toJade() should handle plain text', t => {
+  const html = 'This is text.'
+  const jade = '| This is text.'
+  t.is(toJade(himalaya.parse(html)), jade)
+})
 
-var newline = '\n';
-var jadeDefaults = {
-  indentation: '  '
-};
+test('toJade() should handle multi-line plain text', t => {
+  const html = 'This is multiline text.\nLook newlines.'
+  const jade = '| This is multiline text.\n| Look newlines.'
+  t.is(toJade(himalaya.parse(html)), jade)
+})
 
-function isWhitespaceNode(node) {
-  return !(node.type === 'Text' && !node.content.trim());
-}
+test('toJade() should handle inline comments', t => {
+  const html = '<!-- Comment -->'
+  const jade = '// Comment '
+  t.is(toJade(himalaya.parse(html)), jade)
+})
 
-function toJade(tree) {
-  var options = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : jadeDefaults;
-  var doctype = options.doctype;
+test('toJade() should handle multi-line comments', t => {
+  const html = [
+    '<!--',
+    '  This is a multiline comment.',
+    '  Look newlines.',
+    '-->'
+  ].join('\n')
+  const jade = [
+    '//',
+    '  This is a multiline comment.',
+    '  Look newlines.'
+  ].join('\n')
+  t.is(toJade(himalaya.parse(html)), jade)
+})
 
-  var multi = multilineText(options.indentation);
+test('toJade() should write short-hand tag ids', t => {
+  const html = "<article id='story'></article>"
+  const jade = 'article#story'
+  t.is(toJade(himalaya.parse(html)), jade)
+})
 
-  if (tree.filter) tree = tree.filter(isWhitespaceNode);
-  var jade = _paul2.default.walk(tree, function (node, walk, depth) {
-    var type = node.type,
-      tagName = node.tagName,
-      attributes = node.attributes;
+test('toJade() should write short-hand tag classes', t => {
+  const html = "<article class='story story--main'></article>"
+  const jade = 'article.story.story--main'
+  t.is(toJade(himalaya.parse(html)), jade)
+})
 
-    if (type === 'Text') {
-      return multi(node.content, depth, '| ');
-    }
-    if (type === 'Comment') {
-      var text = node.content;
-      return ~text.indexOf(newline) ? multi('//', depth) + newline + multi(text, depth + 1) : multi('//' + text, depth);
-    }
-    var tag = tagName;
-    var id = attributes.id,
-      className = attributes.className;
+test('toJade() should ignore `div` if an id or class(es) are provided', t => {
+  const htmlId = "<div id='block'></div>"
+  const jadeId = '#block'
+  t.is(toJade(himalaya.parse(htmlId)), jadeId)
 
-    if (id) tag += '#' + id;
-    if (className) tag += '.' + className.join('.');
+  const htmlClass = "<div class='block'></div>"
+  const jadeClass = '.block'
+  t.is(toJade(himalaya.parse(htmlClass)), jadeClass)
 
-    var redundantDiv = node.tagName === 'div' && tag.length > 3;
-    if (redundantDiv) tag = tag.slice(3);
+  const htmlClasses = "<div class='block block--jumbo'></div>"
+  const jadeClasses = '.block.block--jumbo'
+  t.is(toJade(himalaya.parse(htmlClasses)), jadeClasses)
+})
 
-    tag = multi(tag, depth);
-    var attrs = node.attributes;
-    var props = Object.keys(attrs).filter(function (key) {
-      return key !== 'className' && key !== 'id';
-    });
-    if (props.length) {
-      var isXml = doctype === 'xml';
-      tag += '(';
-      tag += props.map(function (prop) {
-        var val = attrs[prop];
-        if (prop === 'dataset') {
-          return Object.keys(val).map(function (attr) {
-            return serializeAttr('data-' + dasherize(attr), val[attr], isXml);
-          }).join(', ');
-        }
-        if (prop === 'style') return serializeAttr(prop, inlineStyle(val));
-        return serializeAttr(dasherize(prop), val, isXml);
-      }).join(', ');
-      tag += ')';
-    }
-    var lowTagName = node.tagName.toLowerCase();
-    if ((0, _compat.arrayIncludes)(voidTags, lowTagName)) {
-      if (lowTagName === '!doctype') {
-        if (!doctype) doctype = doctypeShortcut(tag);
-        return multi('doctype ' + doctype, depth);
-      }
-      return tag;
-    }
+test('toJade() should write attributes', t => {
+  const html = "<canvas width='500' height='400'></canvas>"
+  const jade = "canvas(width='500', height='400')"
+  t.is(toJade(himalaya.parse(html)), jade)
+})
 
-    var children = node.children;
+test('toJade() should write data-* attributes', t => {
+  const html = "<div data-one='5' data-two='five'></div>"
+  const jade = "div(data-one='5', data-two='five')"
+  t.is(toJade(himalaya.parse(html)), jade)
+})
 
-    if (!children.length) return tag;
-    if (children.length === 1 && children[0].type === 'Text') {
-      var _text = children[0].content;
-      return ~_text.indexOf(newline) ? tag + '.' + newline + multi(_text, depth + 1) : tag + ' ' + _text;
-    }
+test('toJade() should do basic escaping if a value contains either single or double quotes', t => {
+  const html = '<div data-val="cake is \'good\'"></div>'
+  const jade = 'div(data-val="cake is \'good\'")'
+  t.is(toJade(himalaya.parse(html)), jade)
+})
 
-    return tag + newline + walk(children.filter(isWhitespaceNode), depth + 1).join(newline);
-  }, 0);
-  if (jade.join) return jade.join(newline);
-  return jade;
-}
+test('toJade() should write the style attribute', t => {
+  const html = "<b style='font-weight: bold; font-style: italics'>Word</b>"
+  const jade = "b(style='font-weight: bold; font-style: italics') Word"
+  t.is(toJade(himalaya.parse(html)), jade)
+})
 
-function multilineText(indentation) {
-  var format = function format(line) {
-    return line;
-  };
-  var hasTab = (0, _compat.stringIncludes)(indentation, '\t');
-  if (hasTab) {
-    format = function format(line) {
-      return line.replace(/\t/g, indentation);
-    };
-  }
+test('toJade() should appropriate place tag inner text', t => {
+  const htmlInline = '<h1>Hello</h1>'
+  const jadeInline = 'h1 Hello'
+  t.is(toJade(himalaya.parse(htmlInline)), jadeInline)
 
-  function indent(depth, str) {
-    while (depth--) {
-      str = indentation + str;
-    }
-    return str;
-  }
+  const htmlMultiline = '<h1>Hello\nWorld</h1>'
+  const jadeMultiline = 'h1.\n  Hello\n  World'
+  t.is(toJade(himalaya.parse(htmlMultiline)), jadeMultiline)
+})
 
-  return function (str, depth) {
-    var lead = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : '';
+test('toJade() should use tabs for indentation if configured', t => {
+  const html = '<h1>Hello\nWorld</h1>'
+  const jade = 'h1.\n\t\tHello\n\t\tWorld'
+  const jadeOptions = {indentation: '\t\t'}
+  t.is(toJade(himalaya.parse(html), jadeOptions), jade)
+})
 
-    var lines = str.split(newline).map(format).filter(function (line) {
-      return !!line.trim();
-    });
+test('toJade() should work for script and style tags', t => {
+  const htmlScript = "<script type='text/javascript'>console.log('yes');\nconsole.log('no');</script>"
+  const jadeScript = "script(type='text/javascript').\n  console.log('yes');\n  console.log('no');"
+  t.is(toJade(himalaya.parse(htmlScript)), jadeScript)
 
-    var start = maxSharedIndent(lines);
-    return lines.map(function (line) {
-      return indent(depth, lead + line.slice(start));
-    }).join(newline);
-  };
-}
+  const htmlStyle = '<style>\nh1 {color: #fff;}\n.text {font-size: 12px;}</style>'
+  const jadeStyle = 'style.\n  h1 {color: #fff;}\n  .text {font-size: 12px;}'
+  t.is(toJade(himalaya.parse(htmlStyle)), jadeStyle)
+})
 
-function maxSharedIndent(lines) {
-  return lines.reduce(function (num, line) {
-    return Math.min(num, line.length - line.trimLeft().length);
-  }, Infinity);
-}
+test('toJade() should handle receiving a single root node', t => {
+  const html = '<div><p>Words are words.</p></div>'
+  const jade = [
+    'div',
+    '  p Words are words.'
+  ].join('\n')
+  t.is(toJade(himalaya.parse(html)[0]), jade)
+})
 
-// see http://jade-lang.com/reference/doctype/
-function doctypeShortcut(str) {
-  if ((0, _compat.stringIncludes)(str, 'Transitional')) return 'transitional';
-  if ((0, _compat.stringIncludes)(str, 'strict')) return 'strict';
-  if ((0, _compat.stringIncludes)(str, 'Frameset')) return 'frameset';
-  if ((0, _compat.stringIncludes)(str, 'Basic')) return 'basic';
-  if ((0, _compat.stringIncludes)(str, '1.1')) return '1.1';
-  if ((0, _compat.stringIncludes)(str, 'Mobile')) return 'mobile';
-  return 'html';
-}
+test('toJade() should work for void tags', t => {
+  const html = '<img src="cake.png"/>'
+  const jade = "img(src='cake.png')"
+  t.is(toJade(himalaya.parse(html)), jade)
+})
 
-module.exports = {
-  toHTML: toHTML,
-  toJade: toJade,
-  toPug: toJade
-};
-//# sourceMappingURL=translate.js.map
+test('toJade() should prioritize using a configured doctype', t => {
+  const html = '<!doctype html>'
+  const jade = 'doctype foobar'
+  const jadeOptions = {doctype: 'foobar', indentation: '  '}
+  t.is(toJade(himalaya.parse(html), jadeOptions), jade)
+})
+
+test('toJade() should produce proper shorthand doctypes', t => {
+  const cases = [
+    [
+      '<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">',
+      'doctype transitional'
+    ],
+    [
+      '<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Frameset//EN" "http://www.w3.org/TR/html4/frameset.dtd">',
+      'doctype frameset'
+    ],
+    [
+      '<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">',
+      'doctype strict'
+    ],
+    [
+      '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML Basic 1.1//EN" "http://www.w3.org/TR/xhtml-basic/xhtml-basic11.dtd">',
+      'doctype basic'
+    ],
+    [
+      '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">',
+      'doctype 1.1'
+    ],
+    [
+      '<!DOCTYPE html PUBLIC "-//WAPFORUM//DTD XHTML Mobile 1.2//EN" "http://www.openmobilealliance.org/tech/DTD/xhtml-mobile12.dtd">',
+      'doctype mobile'
+    ],
+    ['<!doctype html>', 'doctype html']
+  ]
+
+  cases.forEach(([html, jade]) => {
+    t.is(toJade(himalaya.parse(html)), jade)
+  })
+})
+
+test('toPug() should be an alias for toJade(ast, options)', t => {
+  t.is(toJade, toPug)
+})
